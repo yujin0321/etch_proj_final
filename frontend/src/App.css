@@ -60,9 +60,9 @@
 }
 
 .start-btn {
-  background: var(--accent-blue);
+  background: var(--accent-red);
   color: white;
-  border: none;
+  border: 1px solid var(--accent-red);
   padding: 1rem;
   border-radius: 8px;
   font-weight: bold;
@@ -76,16 +76,17 @@
 }
 
 .start-btn:hover {
-  background: #0055ff;
-  box-shadow: 0 0 15px rgba(0, 71, 255, 0.5);
+  background: #ff2f2f;
+  box-shadow: 0 0 15px rgba(250, 70, 70, 0.45);
 }
 
 .start-btn.running {
-  background: var(--accent-red);
+  background: #b71f2b;
+  border-color: #b71f2b;
 }
 .start-btn.running:hover {
-  background: #ff1a4f;
-  box-shadow: 0 0 15px rgba(255, 42, 95, 0.5);
+  background: #941923;
+  box-shadow: 0 0 15px rgba(183, 31, 43, 0.5);
 }
 
 /* Main Content Area */

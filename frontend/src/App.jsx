@@ -308,10 +308,10 @@ function App() {
 
             <button 
               className={`start-btn ${isRunning ? 'running' : ''}`}
-              style={{ padding: '0.8rem 1.5rem', borderRadius: '4px', fontSize: '1rem' }}
+              style={{ padding: '0.8rem 1.5rem', fontSize: '1rem' }}
               onClick={() => setIsRunning(!isRunning)}
             >
-              {isRunning ? <><Square size={18} /> 시스템 정지</> : <><Play size={18} fill="currentColor" /> 시스템 가동</>}
+              {isRunning ? <><Square size={18} /> Stop System</> : <><Play size={18} fill="currentColor" /> Start System</>}
             </button>
           </div>
         </div>

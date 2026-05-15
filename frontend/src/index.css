@@ -32,6 +32,10 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+.equipment-card {
+  border-radius: 22px;
+}
+
 .text-gradient {
   color: var(--accent-cyan);
 }

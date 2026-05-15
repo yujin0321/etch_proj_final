@@ -80,7 +80,7 @@ const FleetOverview = ({ fleetStatus, onSelectEquipment }) => {
             <div 
               key={eqId}
               onClick={() => onSelectEquipment(eqId)}
-              className={`glass-panel ${isAnomaly ? 'anomaly-pulse' : ''}`}
+              className={`glass-panel equipment-card ${isAnomaly ? 'anomaly-pulse' : ''}`}
               style={{ 
                 cursor: 'pointer',
                 border: isAnomaly ? '2px solid var(--accent-red)' : '1px solid var(--border-color)',
