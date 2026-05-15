@@ -23,6 +23,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger("InferenceEngine")
 
+class ImprovedAutoencoder(nn.Module):
+    """BatchNorm + Dropout 구조의 최종 오토인코더 모델."""
+    def __init__(self, input_dim: int, dropout: float = 0.1):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(64, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(32, 16),
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(16, 32),
+            nn.ReLU(),
+            nn.Linear(32, 64),
+            nn.ReLU(),
+            nn.Linear(64, input_dim),
+        )
+
+    def forward(self, x):
+        return self.decoder(self.encoder(x))
+
+
 class Autoencoder(nn.Module):
     """이상치 탐지를 위한 오토인코더 모델"""
     def __init__(self, input_dim):
@@ -46,7 +73,7 @@ class Autoencoder(nn.Module):
         return self.decoder(self.encoder(x))
 
 class InferenceEngine:
-    def __init__(self, model_dir='models_v2', lgbm_confidence_threshold=0.90, very_high_threshold=0.95, window_size=100, std_multiplier=2.0):
+    def __init__(self, model_dir='models_final', lgbm_confidence_threshold=0.90, very_high_threshold=0.95, window_size=100, std_multiplier=2.0):
         self.model_dir = model_dir
         self.lgbm_confidence_threshold = lgbm_confidence_threshold
         self.very_high_threshold = very_high_threshold
@@ -84,12 +111,24 @@ class InferenceEngine:
         # [고도화 1] 모델 입력 차원 재계산: 현재(t) + 평균 + 표준편차 + Lag(t-1) + Lag(t-2) = 피처 수 * 5
         input_dim = len(self.features) * 5
         
-        self.model_ae = Autoencoder(input_dim).to(self.device)
-        self.model_ae.load_state_dict(ae_data['model_state_dict'])
+        state_dict = ae_data['model_state_dict']
+        uses_improved_ae = any(key.endswith("running_mean") for key in state_dict)
+        self.model_ae = (
+            ImprovedAutoencoder(input_dim).to(self.device)
+            if uses_improved_ae
+            else Autoencoder(input_dim).to(self.device)
+        )
+        self.model_ae.load_state_dict(state_dict)
         self.model_ae.eval()
         self.scaler = joblib.load(os.path.join(self.model_dir, 'scaler.joblib'))
         self.lgb_model = joblib.load(os.path.join(self.model_dir, 'lightgbm_model.joblib'))
         self.le = joblib.load(os.path.join(self.model_dir, 'label_encoder.joblib'))
+        self.expanded_features = self._expanded_feature_names(self.features)
+
+    @staticmethod
+    def _expanded_feature_names(features: List[str]) -> List[str]:
+        suffixes = ["current", "rolling_mean", "rolling_std", "lag_1", "lag_2"]
+        return [f"{feature}__{suffix}" for suffix in suffixes for feature in features]
 
     def reset(self):
         """새로운 공정(Run) 스트림이 시작될 때 버퍼 초기화"""
@@ -144,7 +183,11 @@ class InferenceEngine:
                 current_threshold = self.base_threshold
 
             # 2. 분류 모델 예측
-            probs = self.lgb_model.predict_proba(X_scaled)[0]
+            lgb_input = X_scaled
+            model_feature_names = getattr(self.lgb_model, "feature_name_", None)
+            if model_feature_names and len(model_feature_names) == X_scaled.shape[1]:
+                lgb_input = pd.DataFrame(X_scaled, columns=model_feature_names)
+            probs = self.lgb_model.predict_proba(lgb_input)[0]
             max_prob = float(np.max(probs))
             pred_idx = int(np.argmax(probs))
             pred_label = self.le.inverse_transform([pred_idx])[0]
@@ -206,7 +249,8 @@ class InferenceEngine:
                 'is_anomaly': is_anomaly,
                 'predicted_label': pred_label,
                 'ae_anomaly': ae_anomaly,
-                'top_candidates': top_candidates
+                'top_candidates': top_candidates,
+                'scaled_features': X_scaled,
             }
             
         except Exception as e:

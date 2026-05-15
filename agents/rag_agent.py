@@ -16,7 +16,16 @@ class GraphRAGAgent:
         uri = os.getenv("NEO4J_URI")
         user = os.getenv("NEO4J_USERNAME")
         password = os.getenv("NEO4J_PASSWORD")
-        self.driver = GraphDatabase.driver(uri, auth=(user, password))
+        try:
+            self.driver = GraphDatabase.driver(uri, auth=(user, password))
+            # Test connection
+            with self.driver.session() as session:
+                session.run("RETURN 1")
+            self.connected = True
+        except Exception as e:
+            print(f"⚠️ Warning: Neo4j connection failed ({e}). Running in offline mode.")
+            self.driver = None
+            self.connected = False
         
         self.prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a Senior Semiconductor Maintenance Expert. 
@@ -40,7 +49,8 @@ Guidelines:
         self.chain = self.prompt | self.llm | StrOutputParser()
 
     def close(self):
-        self.driver.close()
+        if self.driver:
+            self.driver.close()
 
     def get_context_from_graph(self, fault_name):
         """
@@ -63,25 +73,31 @@ Guidelines:
             cause.name as cause_name,
             ws.name as impacted_quality
         """
-        with self.driver.session() as session:
-            result = session.run(query, fault_name=fault_name)
-            records = [dict(record) for record in result]
-            
-            if not records or not records[0]['sop_title']:
-                return "No specific SOP found in the knowledge graph for this fault."
-            
-            context = ""
-            for r in records:
-                context += f"- Fault: {r['fault']}\n"
-                context += f"- SOP Title: {r['sop_title']}\n"
-                context += f"- SOP Steps: {r['sop_steps']}\n"
-                if r['components']:
-                    context += f"- Affected Components: {', '.join(r['components'])}\n"
-                if r['cause_name']:
-                    context += f"- Potential Cause: {r['cause_name']}\n"
-                if r['impacted_quality']:
-                    context += f"- Impacted Wafer Quality: {r['impacted_quality']}\n"
-            return context
+        if not self.connected or not self.driver:
+            return "Knowledge Graph is currently offline. Providing recommendations based on general semiconductor process engineering knowledge."
+
+        try:
+            with self.driver.session() as session:
+                result = session.run(query, fault_name=fault_name)
+                records = [dict(record) for record in result]
+                
+                if not records or not records[0]['sop_title']:
+                    return "No specific SOP found in the knowledge graph for this fault."
+                
+                context = ""
+                for r in records:
+                    context += f"- Fault: {r['fault']}\n"
+                    context += f"- SOP Title: {r['sop_title']}\n"
+                    context += f"- SOP Steps: {r['sop_steps']}\n"
+                    if r['components']:
+                        context += f"- Affected Components: {', '.join(r['components'])}\n"
+                    if r['cause_name']:
+                        context += f"- Potential Cause: {r['cause_name']}\n"
+                    if r['impacted_quality']:
+                        context += f"- Impacted Wafer Quality: {r['impacted_quality']}\n"
+                return context
+        except Exception as e:
+            return f"Knowledge Graph access error ({str(e)}). Using general knowledge fallback."
 
     def get_recommendation(self, fault_name, shap_analysis=None):
         # 1. Retrieve data from Neo4j

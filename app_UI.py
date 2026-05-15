@@ -11,7 +11,7 @@ from confluent_kafka import Consumer
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from inference import InferenceEngine
+from modeling_f2 import InferenceEngine
 from shap_analysis import SHAPExplainer
 from agents.shap_agent import SHAPAgent
 from agents.rag_agent import GraphRAGAgent

@@ -5,7 +5,7 @@ import json
 import os
 
 class SHAPExplainer:
-    def __init__(self, lgb_model, features, stats_path='models/sensor_stats.json'):
+    def __init__(self, lgb_model, features, stats_path='models_final/sensor_stats.json'):
         self.explainer = shap.TreeExplainer(lgb_model)
         self.features = [f.strip() for f in features]
         self.stats = {}
@@ -38,11 +38,12 @@ class SHAPExplainer:
         analysis_results = []
         for i in top_indices:
             sensor_name = self.features[i]
+            base_sensor_name = sensor_name.split("__", 1)[0]
             shap_val = float(class_shap[i])
-            current_val = float(raw_features.get(sensor_name, 0.0))
+            current_val = float(raw_features.get(base_sensor_name, raw_features.get(sensor_name, 0.0)))
             
             # Context from stats
-            stat = self.stats.get(sensor_name, {})
+            stat = self.stats.get(base_sensor_name, self.stats.get(sensor_name, {}))
             mean = stat.get('mean', 0.0)
             u_bound = stat.get('upper_bound', 0.0)
             l_bound = stat.get('lower_bound', 0.0)
@@ -59,6 +60,7 @@ class SHAPExplainer:
             
             analysis_results.append({
                 "sensor": sensor_name,
+                "base_sensor": base_sensor_name,
                 "shap_value": shap_val,
                 "current_value": round(current_val, 4),
                 "mean_value": round(mean, 4),
@@ -70,7 +72,7 @@ class SHAPExplainer:
         return analysis_results
 
 if __name__ == "__main__":
-    from inference import InferenceEngine
+    from modeling_f2 import InferenceEngine
     engine = InferenceEngine()
     explainer = SHAPExplainer(engine.lgb_model, engine.features)
     

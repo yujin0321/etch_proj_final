@@ -45,6 +45,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EtchServer")
 
+MODEL_DIR = "models_final"
+LOCAL_SIMULATION_CSV = "data/test_v6_20.csv"
+INFERENCE_ENGINE_MODULE = "modeling_f2"
+
 # --- AI Engine Globals (loaded once at startup) ---
 engine = None
 explainer = None
@@ -62,10 +66,13 @@ except ImportError:
 def load_ai_engines():
     """Load inference engine and SHAP explainer (heavy operation, done once)."""
     global engine, explainer
-    from inference import InferenceEngine
+    from modeling_f2 import InferenceEngine
     from shap_analysis import SHAPExplainer
-    engine = InferenceEngine(lgbm_confidence_threshold=0.8)
-    explainer = SHAPExplainer(engine.lgb_model, engine.features)
+    engine = InferenceEngine(model_dir=MODEL_DIR, lgbm_confidence_threshold=0.8)
+    explainer = SHAPExplainer(
+        engine.lgb_model,
+        getattr(engine, "expanded_features", engine.features),
+    )
     logger.info("✅ AI Engines loaded successfully.")
     logger.info(f"   Features: {len(engine.features)} sensors")
     logger.info(f"   Base threshold: {engine.base_threshold:.4f}")
@@ -172,14 +179,11 @@ async def websocket_stream(
 
 async def _stream_from_csv(websocket: WebSocket, speed: float, slack_active: bool):
     """Local CSV 시뮬레이션 — 10대 장비에 라운드로빈 분배"""
-    csv_path = 'data/test_tstr.csv'
-    if not os.path.exists(csv_path):
-        # Fallback
-        csv_path = 'data/Augmented_Sensor_Data_v4.csv'
+    csv_path = LOCAL_SIMULATION_CSV
     if not os.path.exists(csv_path):
         await manager.send_json(websocket, {
             "type": "error",
-            "message": f"No data file found. Tried test_tstr.csv and Augmented_Sensor_Data_v4.csv"
+            "message": f"No data file found. Tried {LOCAL_SIMULATION_CSV}"
         })
         return
 
@@ -188,16 +192,17 @@ async def _stream_from_csv(websocket: WebSocket, speed: float, slack_active: boo
     
     # --- [New] Refined Simulation Strategy ---
     # 1. Group by run_id
-    grouped = test_df.groupby('run_id')
+    run_key = 'run_id' if 'run_id' in test_df.columns else 'Run_Name'
+    grouped = test_df.groupby(run_key)
     normal_runs = []
-    fault_rf = None # RF +10
+    fault_rf = None # RF 계열 대표 결함
     fault_tcp = None # TCP +20
     
     for rid, group in grouped:
         fn = group['Fault_Name'].iloc[0]
         if fn == 'Normal':
             normal_runs.append(group)
-        elif fn == 'RF +10' and fault_rf is None:
+        elif fn in {'RF +8', 'RF +10'} and fault_rf is None:
             fault_rf = group
         elif fn == 'TCP +20' and fault_tcp is None:
             fault_tcp = group
@@ -207,7 +212,7 @@ async def _stream_from_csv(websocket: WebSocket, speed: float, slack_active: boo
     for i, run in enumerate(normal_runs):
         eq_queues[i % 10].append(run)
         
-    # 3. Specific placement: RF +10 to EQ-01 (idx 0), TCP +20 to EQ-03 (idx 2)
+    # 3. Specific placement: RF fault to EQ-01 (idx 0), TCP +20 to EQ-03 (idx 2)
     # Put them after the first normal run to see some normal state first
     if fault_rf is not None:
         eq_queues[0].insert(1, fault_rf)
@@ -223,7 +228,7 @@ async def _stream_from_csv(websocket: WebSocket, speed: float, slack_active: boo
             continue
         flat_queues.append(pd.concat(q).to_dict('records'))
         
-    logger.info(f"📊 Simulation ready. EQ-01 gets RF +10, EQ-03 gets TCP +20.")
+    logger.info(f"📊 Simulation ready. EQ-01 gets RF fault, EQ-03 gets TCP +20.")
     logger.info(f"📊 Normal runs distributed: ~{len(normal_runs)//10} runs per machine.")
 
     stopped_equipments = set() # Track equipments that encountered anomalies
@@ -272,7 +277,7 @@ async def _stream_from_csv(websocket: WebSocket, speed: float, slack_active: boo
                 if isinstance(indices[i], WebSocketDisconnect): return
 
             metrics = row
-            run_name = metrics.get('Run_Name', f'RUN_{i}')
+            run_name = metrics.get('Run_Name') or metrics.get('run_id') or f'RUN_{i}'
             fault_name = metrics.get('Fault_Name', 'Normal')
 
             is_anomaly = await _process_and_send(
@@ -599,7 +604,9 @@ async def _run_anomaly_pipeline(
             pred_idx = list(engine.le.classes_).index(target_label)
             m_df = pd.DataFrame([metrics])
             m_df.columns = m_df.columns.str.strip()
-            scaled = engine.scaler.transform(m_df[engine.features])
+            scaled = result.get('scaled_features')
+            if scaled is None:
+                scaled = engine.scaler.transform(m_df[engine.features])
             analysis_data = explainer.explain(scaled, metrics, pred_idx)
         except Exception as e:
             logger.error(f"❌ SHAP Analysis Failed: {e}")
@@ -620,17 +627,10 @@ async def _run_anomaly_pipeline(
         # 사용자 요청에 따라 'UNKNOWN FAULT' 대신 '감지된 결함'으로 명칭을 순화하여 리포트 생성
         display_fault_name = fault_status if fault_status != "UNKNOWN FAULT" else "감지된 결함"
         
-        explanation = "AI Analysis unavailable"
-        recommendation = "No recommendation available"
-        try:
-            explanation, recommendation = await asyncio.gather(
-                asyncio.to_thread(_call_shap_agent, display_fault_name, analysis_data),
-                asyncio.to_thread(_call_rag_agent, display_fault_name, analysis_data),
-            )
-        except Exception as e:
-            logger.error(f"❌ LLM/RAG Pipeline Failed: {e}")
-            if explanation == "AI Analysis unavailable":
-                explanation = f"Error: {str(e)}"
+        explanation, recommendation = await _collect_llm_outputs(
+            asyncio.to_thread(_call_shap_agent, display_fault_name, analysis_data),
+            asyncio.to_thread(_call_rag_agent, display_fault_name, analysis_data),
+        )
 
         # Send LLM report
         report_payload = {
@@ -666,6 +666,29 @@ def _call_shap_agent(fault_status: str, analysis_data: list) -> str:
     from agents.shap_agent import SHAPAgent
     agent = SHAPAgent()
     return agent.explain_fault(fault_status, analysis_data)
+
+
+async def _collect_llm_outputs(shap_task, rag_task) -> tuple[str, str]:
+    """Return partial LLM outputs even if SHAP or RAG fails independently."""
+    shap_result, rag_result = await asyncio.gather(
+        shap_task,
+        rag_task,
+        return_exceptions=True,
+    )
+
+    if isinstance(shap_result, Exception):
+        logger.error(f"❌ SHAP LLM Failed: {shap_result}")
+        explanation = f"Error generating SHAP explanation: {shap_result}"
+    else:
+        explanation = shap_result
+
+    if isinstance(rag_result, Exception):
+        logger.error(f"❌ GraphRAG Failed: {rag_result}")
+        recommendation = f"Neo4j/RAG recommendation unavailable: {rag_result}"
+    else:
+        recommendation = rag_result
+
+    return explanation, recommendation
 
 
 def _call_rag_agent(fault_status: str, analysis_data: list) -> str:

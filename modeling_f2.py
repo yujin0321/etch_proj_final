@@ -151,23 +151,36 @@ class InferenceEngine:
 
         input_dim = len(self.features) * 5  # 현재 + 평균 + 표준편차 + Lag1 + Lag2
 
-        if self.use_improved_ae:
+        state_dict = ae_data['model_state_dict']
+        # 자동 감지: BatchNorm 계열 키가 있으면 Improved 구조 사용
+        has_batchnorm = any("running_mean" in k for k in state_dict.keys())
+        
+        if self.use_improved_ae or has_batchnorm:
+            if not has_batchnorm and self.use_improved_ae:
+                logger.warning("use_improved_ae=True이나 체크포인트에 BatchNorm이 없습니다. 강제 시도합니다.")
             self.model_ae = ImprovedAutoencoder(input_dim).to(self.device)
         else:
             self.model_ae = Autoencoder(input_dim).to(self.device)
 
-        self.model_ae.load_state_dict(ae_data['model_state_dict'])
+        self.model_ae.load_state_dict(state_dict)
         self.model_ae.eval()
 
         self.scaler    = joblib.load(os.path.join(self.model_dir, 'scaler.joblib'))
         self.lgb_model = joblib.load(os.path.join(self.model_dir, 'lightgbm_model.joblib'))
         self.le        = joblib.load(os.path.join(self.model_dir, 'label_encoder.joblib'))
+        self.expanded_features = self._expanded_feature_names(self.features)
 
         logger.info(
             f"모델 로드 완료 | 피처: {len(self.features)}개 | "
+            f"확장 피처: {len(self.expanded_features)}개 | "
             f"기본 임계치: {self.base_threshold:.4f} | "
             f"AE weight: {self.ae_weight:.2f}"
         )
+
+    @staticmethod
+    def _expanded_feature_names(features: List[str]) -> List[str]:
+        suffixes = ["current", "rolling_mean", "rolling_std", "lag_1", "lag_2"]
+        return [f"{feature}__{suffix}" for suffix in suffixes for feature in features]
 
     # ──────────────────────────────────────────
     # 공정(Run) 전환 시 버퍼 초기화
@@ -423,6 +436,7 @@ class InferenceEngine:
                 'predicted_label':    pred_label,
                 'ae_anomaly':         ae_anomaly,
                 'top_candidates':     top_candidates,
+                'scaled_features':    X_scaled,
             }
 
         except Exception as e:

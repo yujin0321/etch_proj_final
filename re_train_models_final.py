@@ -11,6 +11,27 @@ import json
 import os
 from modeling_f2 import train_improved_autoencoder
 
+
+def build_sensor_stats(df, features):
+    """정상 학습 데이터 기준 센서별 평균/정상 범위를 생성합니다."""
+    normal_df = df[df['Fault_Name'] == 'Normal']
+    if normal_df.empty:
+        normal_df = df
+
+    stats = {}
+    for feature in features:
+        series = normal_df[feature].astype(float)
+        mean = float(series.mean())
+        std = float(series.std(ddof=0))
+        stats[feature] = {
+            "mean": mean,
+            "std": std,
+            "lower_bound": mean - (3.0 * std),
+            "upper_bound": mean + (3.0 * std),
+        }
+    return stats
+
+
 def re_train_models():
     print("🚀 [재학습] 데이터 분포 정렬 및 모델 재학습을 시작합니다.")
     
@@ -119,6 +140,8 @@ def re_train_models():
     joblib.dump(scaler, 'models_final/scaler.joblib')
     joblib.dump(lgb_model, 'models_final/lightgbm_model.joblib')
     joblib.dump(le, 'models_final/label_encoder.joblib')
+    with open('models_final/sensor_stats.json', 'w') as f:
+        json.dump(build_sensor_stats(df, features), f, indent=2)
     
     print("💾 모든 모델 및 전처리기가 models_final/ 폴더에 저장되었습니다.")
 
