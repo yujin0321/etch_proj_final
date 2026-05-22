@@ -43,55 +43,56 @@ class SlackNotifier:
         action_items = self._format_action_items(recommendation, primary_sensor, fault_name)
 
         payload = {
-            "username": username or "Semiconductor Guardian",
-            "icon_emoji": ":warning:",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":rotating_light: *[?ㅻ퉬 ?댁긽]* {equipment_id or 'Unknown'} (Run: {run_name})",
-                    },
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": (
-                            f"*발생 시간:* {event_time or 'Now'}\n"
-                            f"*이상 내용:* {fault_name}\n"
-                            f"*심각도:* {severity_label} ({severity_detail})\n"
-                            f"*원인 센서:* `{primary_sensor or 'Unknown'}`\n"
-                            f"*최우선 추정 원인:* {primary_cause}"
-                        ),
-                    },
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": action_items,
-                    },
-                },
-                {
-                    "type": "context",
-                    "elements": [
+                    "username": username or "Semiconductor Guardian",
+                    "icon_emoji": ":warning:",
+                    "blocks": [
                         {
-                            "type": "mrkdwn",
-                            "text": "(?④린/?ш???議곗튂 ?덉감???щ궡 SOP瑜?李멸퀬??二쇱꽭??)",
-                        }
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f":rotating_light: *[설비 이상]* {equipment_id or 'Unknown'} (Run: {run_name})",
+                            },
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": (
+                                    f"*발생 시간:* {event_time or 'Now'}\n"
+                                    f"*이상 내용:* {fault_name}\n"
+                                    f"*심각도:* {severity_label} ({severity_detail})\n"
+                                    f"*원인 센서:* `{primary_sensor or 'Unknown'}`\n"
+                                    f"*최우선 추정 원인:* {primary_cause}"
+                                ),
+                            },
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": action_items,
+                            },
+                        },
+                        {
+                            "type": "context",
+                            "elements": [
+                                {
+                                    "type": "mrkdwn",
+                                    "text": "(단기/장기 조치 사항은 사내 SOP를 참고해 주세요)",
+                                }
+                            ],
+                        },
                     ],
-                },
-            ],
-        }
+                }
 
         webhook = self._effective_webhook(webhook_url)
         try:
             if webhook:
+                encoded_data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
                 response = requests.post(
                     webhook,
-                    data=json.dumps(payload),
-                    headers={"Content-Type": "application/json"},
+                    data=encoded_data,
+                    headers={"Content-Type": "application/json; charset=utf-8"},
                     timeout=10,
                 )
                 response.raise_for_status()
@@ -99,12 +100,14 @@ class SlackNotifier:
                 return True
 
             if self.bot_token and self.channel_id:
+                combined_payload = {"channel": self.channel_id, **payload}
+                encoded_data = json.dumps(combined_payload, ensure_ascii=False).encode('utf-8')
                 response = requests.post(
                     "https://slack.com/api/chat.postMessage",
-                    data=json.dumps({"channel": self.channel_id, **payload}),
+                    data=encoded_data,
                     headers={
                         "Authorization": f"Bearer {self.bot_token}",
-                        "Content-Type": "application/json; charset=utf-8",
+                        "Content-Type": "application/json; charset=utf-8"
                     },
                     timeout=10,
                 )
@@ -170,7 +173,7 @@ class SlackNotifier:
             if first_line:
                 return first_line
         if primary_sensor:
-            return f"{primary_sensor} 센서가 이상 구간에서 가장 크게 기준 범위를 벗어났습니다."
+            return f"AI 진단 결과, {primary_sensor} 센서의 변동이 주요 결함 원인으로 분석되었습니다."
         if explanation:
             first_line = str(explanation).strip().splitlines()[0].strip()
             if first_line and SlackNotifier._clean_recommendation(first_line):
@@ -202,20 +205,20 @@ class SlackNotifier:
     @staticmethod
     def _severity_label_and_detail(confidence, mse) -> tuple[str, str]:
         if confidence is None:
-            return "Unknown", "?꾪뿕???먮떒 遺덇?"
+            return "Unknown", "위험도 판단 불가"
 
         try:
             score = float(confidence)
         except (TypeError, ValueError):
-            return "Unknown", "?꾪뿕???먮떒 遺덇?"
+            return "Unknown", "위험도 판단 불가"
 
         if score >= 0.90:
-            return "High", "Wafer ?먭린 ?꾪뿕: ?믪쓬"
+            return "High", "Wafer 폐기 위험: 높음"
         if score >= 0.70:
-            return "Medium-High", "Wafer ?먭린 ?꾪뿕: 以묎컙 ?댁긽"
+            return "Medium-High", "Wafer 폐기 위험: 중간 이상"
         if score >= 0.40:
-            return "Low-Medium", "Wafer ?먭린 ?꾪뿕: ??쓬"
-        return "Low", "Wafer ?먭린 ?꾪뿕: 留ㅼ슦 ??쓬"
+            return "Low-Medium", "Wafer 폐기 위험: 낮음"
+        return "Low", "Wafer 폐기 위험: 매우 낮음"
 
 
 if __name__ == "__main__":

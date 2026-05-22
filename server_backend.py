@@ -891,21 +891,6 @@ async def _run_anomaly_pipeline(
             analysis_data.append(segment_item)
 
         if analysis_data:
-            # Segment-level root cause sensor가 있으면 우선 순위를 높여서 전달
-            primary_sensor = segment_info.get('top_sensor', {}).get('sensor')
-            if primary_sensor:
-                segment_item = _segment_top_sensor_to_analysis_item(segment_info.get('top_sensor'))
-                found_primary_sensor = False
-                for idx, item in enumerate(analysis_data):
-                    if item.get('base_sensor') == primary_sensor or item.get('sensor') == primary_sensor:
-                        analysis_data.insert(0, analysis_data.pop(idx))
-                        analysis_data[0]["source"] = "anomaly_segment"
-                        analysis_data[0]["rank"] = 0
-                        found_primary_sensor = True
-                        break
-                if segment_item and not found_primary_sensor:
-                    analysis_data.insert(0, segment_item)
-
             shap_payload = {
                 "type": "shap_data",
                 "equipment_id": eq_id,
@@ -950,7 +935,7 @@ async def _run_anomaly_pipeline(
                     result['confidence'],
                     explanation,
                     recommendation,
-                    [segment_info.get('top_sensor', {}).get('sensor')],
+                    [analysis_data[0].get('sensor')] if analysis_data else [],
                     eq_id,
                     current_time,
                     "analysis",
@@ -1202,7 +1187,7 @@ async def health():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "server:app",
+        "server_backend:app",
         host="0.0.0.0",
         port=8000,
         reload=True,

@@ -178,7 +178,7 @@ const RootCauseActionGuide = ({ shapData, topCandidates, rootCauseSensor, select
             <div className="panel-heading">
               <div>
                 <p className="section-kicker">Selected Equipment</p>
-                <h3>{selectedEquipment} 이상 기여 센서</h3>
+                <h3>{selectedEquipment} 결함 진단 핵심 근거 센서</h3>
               </div>
               <span className="confidence-pill">
                 <AlertTriangle size={15} />
