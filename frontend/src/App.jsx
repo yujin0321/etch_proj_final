@@ -1,51 +1,37 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { Play, Square, Activity, BrainCircuit, BookOpen, LayoutDashboard, Settings, Wifi, WifiOff } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Activity, BrainCircuit, LayoutDashboard, Play, Square } from 'lucide-react';
 import './App.css';
 import LiveDashboard from './LiveDashboard';
-import ShapExplainer from './components/ShapExplainer';
-import RagGuide from './components/RagGuide';
+import RootCauseActionGuide from './components/RootCauseActionGuide';
 import FleetOverview from './components/FleetOverview';
-import AccomplishmentsDashboard from './components/AccomplishmentsDashboard';
-import { BarChart3 } from 'lucide-react';
 
 function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
-  const [showAccomplishments, setShowAccomplishments] = useState(false);
-  const [selectedModel] = useState("식각 공정 이상 감지 통합 모델 v1.0");
-  
-  // 데이터 소스 선택
-  const [dataSource, setDataSource] = useState('local'); // 'local' or 'kafka'
-  const [slackEnabled, setSlackEnabled] = useState(false);
-  const [streamSpeed, setStreamSpeed] = useState(0.5);
-  
-  // WebSocket 연결 상태
-  const [wsConnected, setWsConnected] = useState(false);
-  
-  // 전역 데이터 상태 (다중 장비 지원)
+  const [selectedModel] = useState('식각 공정 이상 탐지 모델 v1.0');
   const [fleetStatus, setFleetStatus] = useState({});
   const [metricsHistory, setMetricsHistory] = useState({});
   const [shapHistory, setShapHistory] = useState({});
-  
   const [selectedEquipment, setSelectedEquipment] = useState('EQ-01');
   const [selectedShapTime, setSelectedShapTime] = useState(null);
-  const wsRef = React.useRef(null);
-
-  // 시스템 상태
   const [systemStatus, setSystemStatus] = useState(null);
+  const wsRef = useRef(null);
+
+  const dataSource = 'local';
+  const slackEnabled = systemStatus?.pipeline?.slack_configured ?? true;
+  const streamSpeed = 0.5;
 
   const handleSelectEquipment = (eqId) => {
     setSelectedEquipment(eqId);
-    setActiveTab(1); // 개별 설비 모니터링 탭으로 이동
+    setActiveTab(1);
   };
 
   const handleAnomalyClick = (time) => {
     setSelectedShapTime(time);
-    setActiveTab(2); // 이상 원인 분석 탭으로 이동
+    setActiveTab(2);
   };
 
-  // Fetch system status on mount
-  React.useEffect(() => {
+  useEffect(() => {
     const fetchStatus = async () => {
       try {
         const res = await fetch('/api/system_status');
@@ -57,59 +43,37 @@ function App() {
         console.log('Server not available yet:', err.message);
       }
     };
+
     fetchStatus();
-    const interval = setInterval(fetchStatus, 30000); // Refresh every 30s
+    const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // WebSocket connection
-  // WebSocket connection
   useEffect(() => {
-    // 시스템이 정지된 경우 소켓 닫기
     if (!isRunning) {
       if (wsRef.current) {
-        console.log("🔌 Stopping WebSocket connection...");
         wsRef.current.close();
         wsRef.current = null;
       }
-      setWsConnected(false);
       return;
     }
 
-    // 시스템 가동 시 기존 기록 초기화 (메모리 확보 및 신선도 유지)
-    console.log("🧹 Clearing history for fresh start...");
     setMetricsHistory({});
     setShapHistory({});
     setFleetStatus({});
 
-    // Build WebSocket URL
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.host;
     const params = new URLSearchParams({
       source: dataSource,
       speed: streamSpeed.toString(),
       slack: slackEnabled.toString(),
     });
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/stream?${params.toString()}`;
-    
-    console.log(`🔗 Connecting WebSocket: ${wsUrl}`);
-    const socket = new WebSocket(wsUrl);
+    const socket = new WebSocket(`${wsProtocol}//${window.location.host}/ws/stream?${params.toString()}`);
     wsRef.current = socket;
 
-    socket.onopen = () => {
-      console.log('✅ WebSocket connected');
-      setWsConnected(true);
-    };
-
-    socket.onclose = (e) => {
-      console.log(`🔌 WebSocket closed: ${e.code} ${e.reason}`);
-      setWsConnected(false);
-    };
-
-    socket.onerror = (e) => {
-      console.error('❌ WebSocket error:', e);
-      setWsConnected(false);
-    };
+    socket.onopen = () => console.log('WebSocket connected');
+    socket.onclose = (event) => console.log(`WebSocket closed: ${event.code} ${event.reason}`);
+    socket.onerror = (event) => console.error('WebSocket error:', event);
 
     socket.onmessage = (event) => {
       try {
@@ -118,103 +82,141 @@ function App() {
         if (!eqId) return;
 
         if (payload.type === 'metrics') {
-          // 1. 실시간 상태 업데이트 (Batching)
-          setFleetStatus(prev => ({
+          setFleetStatus((prev) => ({
             ...prev,
-            [eqId]: payload
+            [eqId]: {
+              ...(prev[eqId] || {}),
+              ...payload,
+              status: prev[eqId]?.reroutedFrom ? '잔여 작업 수신 중' : payload.status,
+              reroutedFrom: prev[eqId]?.reroutedFrom,
+              reroutedTo: prev[eqId]?.reroutedTo,
+              isStopped: prev[eqId]?.isStopped,
+              is_anomaly: prev[eqId]?.isStopped ? true : payload.is_anomaly,
+            },
           }));
-          
-          // 2. 메트릭 히스토리 업데이트 (최대 200개 제한)
-          setMetricsHistory(prev => {
+
+          setMetricsHistory((prev) => {
             const eqHistory = prev[eqId] || [];
-            const newData = [...eqHistory, { time: payload.time, mse: payload.mse, is_anomaly: payload.is_anomaly }];
+            const newData = [
+              ...eqHistory,
+              {
+                time: payload.time,
+                mse: payload.mse,
+                is_anomaly: payload.is_anomaly,
+              },
+            ];
+
             return {
               ...prev,
-              [eqId]: newData.length > 200 ? newData.slice(1) : newData
+              [eqId]: newData.length > 200 ? newData.slice(1) : newData,
             };
           });
         } else if (payload.type === 'shap_data') {
-          const formatted = payload.analysis_data.map(item => ({
-            name: item.sensor,
-            value: Math.abs(item.shap_value)
-          })).sort((a, b) => b.value - a.value).slice(0, 8);
-          
-          setShapHistory(prev => {
+          const formatted = payload.analysis_data
+            .map((item) => ({
+              name: item.sensor,
+              value: Math.abs(item.shap_value),
+            }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 8);
+
+          setShapHistory((prev) => {
             const eqShap = prev[eqId] || {};
             const newEqShap = {
               ...eqShap,
-              [payload.time]: { 
-                data: formatted, 
-                explanation: "분석 중...",
-                recommendation: "",
-                fault_status: payload.fault_status
-              }
+              [payload.time]: {
+                data: formatted,
+                explanation: 'Analyzing...',
+                recommendation: '',
+                fault_status: payload.fault_status,
+              },
             };
-            
-            // [메모리 최적화] SHAP 히스토리 개수 제한 (최신 50개)
+
             const times = Object.keys(newEqShap).sort();
             if (times.length > 50) {
               delete newEqShap[times[0]];
             }
-            
+
             return {
               ...prev,
-              [eqId]: newEqShap
+              [eqId]: newEqShap,
             };
           });
-          
-          // 현재 선택된 장비라면 자동 포커스 (Ref 사용 고려 가능하나 현재는 상태로 유지)
-          // selectedEquipment는 ref가 아니므로 최신값을 읽기 위해 closure issue 주의
-          // 하지만 setSelectedShapTime은 비동기 상태 업데이트이므로 안전함
+
           setSelectedShapTime(payload.time);
         } else if (payload.type === 'shap_report') {
-          setShapHistory(prev => {
+          setShapHistory((prev) => {
             const eqShap = prev[eqId] || {};
             if (!eqShap[payload.time]) return prev;
-            
+
             return {
               ...prev,
               [eqId]: {
                 ...eqShap,
-                [payload.time]: { 
-                  ...eqShap[payload.time], 
+                [payload.time]: {
+                  ...eqShap[payload.time],
                   explanation: payload.explanation,
                   recommendation: payload.recommendation,
-                  top_candidates: payload.top_candidates || []
-                }
-              }
+                  top_candidates: payload.top_candidates || [],
+                  root_cause_sensor: payload.root_cause_sensor || null,
+                },
+              },
             };
           });
-        } else if (payload.type === 'equipment_stop') {
-          // 설비 정지 상태 업데이트
-          setFleetStatus(prev => ({
+
+          setFleetStatus((prev) => ({
             ...prev,
-            [eqId]: { 
-              ...prev[eqId], 
-              status: '🚨 정지됨 (이상 감지)', 
+            [eqId]: {
+              ...(prev[eqId] || {}),
+              root_cause_sensor: payload.root_cause_sensor || null,
+            },
+          }));
+        } else if (payload.type === 'equipment_stop') {
+          setFleetStatus((prev) => ({
+            ...prev,
+            [eqId]: {
+              ...prev[eqId],
+              status: '이상치 발생으로 설비 정지',
               is_anomaly: true,
-              message: payload.message 
-            }
+              isStopped: true,
+              message: payload.message,
+            },
+          }));
+        } else if (payload.type === 'equipment_reroute') {
+          setFleetStatus((prev) => ({
+            ...prev,
+            [payload.equipment_id]: {
+              ...prev[payload.equipment_id],
+              status: '설비 이상 발생',
+              is_anomaly: true,
+              isStopped: true,
+              reroutedTo: payload.target_equipment_id,
+              message: payload.message,
+            },
+            [payload.target_equipment_id]: {
+              ...(prev[payload.target_equipment_id] || {}),
+              status: '잔여 작업 수신 중',
+              reroutedFrom: payload.equipment_id,
+              is_anomaly: false,
+            },
           }));
         } else if (payload.type === 'alert') {
-          console.log(`⚡ Phase 1 Alert: ${payload.message}`);
-          // 설비 상태를 즉시 '이상 감지(진단 중...)'으로 업데이트하여 사용자에게 알림
-          setFleetStatus(prev => ({
+          console.log(`Phase 1 Alert: ${payload.message}`);
+          setFleetStatus((prev) => ({
             ...prev,
-            [eqId]: { 
-              ...prev[eqId], 
-              status: '🚨 이상 감지 (원인 분석 중...)', 
-              is_anomaly: true 
-            }
+            [eqId]: {
+              ...prev[eqId],
+              status: prev[eqId]?.isStopped ? '이상치 발생으로 설비 정지' : '이상 원인 분석 중',
+              is_anomaly: true,
+            },
           }));
         } else if (payload.type === 'info') {
           console.info('System info:', payload.message);
-          // 알림창 등을 띄울 수도 있음
         } else if (payload.type === 'error') {
           console.error('Server error:', payload.message);
         }
       } catch (err) {
-        console.error("Failed to parse WS message:", err);
+        console.error('Failed to parse WS message:', err);
       }
     };
 
@@ -224,113 +226,72 @@ function App() {
         wsRef.current = null;
       }
     };
-  }, [isRunning, dataSource, streamSpeed, slackEnabled]); // selectedEquipment 제외하여 재연결 방지
-
+  }, [isRunning, slackEnabled]);
 
   const tabs = [
-    { id: 0, label: "전체 설비 현황", icon: LayoutDashboard },
-    { id: 1, label: "개별 설비 모니터링", icon: Activity },
-    { id: 2, label: "이상 원인 분석 (SHAP)", icon: BrainCircuit },
-    { id: 3, label: "정비 가이드 (RAG)", icon: BookOpen },
+    { id: 0, label: '전체 설비 현황', icon: LayoutDashboard },
+    { id: 1, label: '설비 모니터링', icon: Activity },
+    { id: 2, label: '원인·조치 가이드', icon: BrainCircuit },
   ];
+
+  const eqShapHistory = shapHistory[selectedEquipment] || {};
+  const shapTimes = Object.keys(eqShapHistory).sort();
+  const latestShapTime = shapTimes.length ? shapTimes[shapTimes.length - 1] : null;
+  const currentShap = (selectedShapTime && eqShapHistory[selectedShapTime]) ||
+    (latestShapTime && eqShapHistory[latestShapTime]) || {
+      data: [],
+      explanation: '',
+      top_candidates: [],
+      root_cause_sensor: null,
+    };
 
   return (
     <div className="app-container" style={{ flexDirection: 'column' }}>
-      {/* Global Dashboard Header */}
-      <header style={{ 
-        background: 'var(--bg-card)', 
-        borderBottom: '1px solid var(--border-color)',
-        zIndex: 10
-      }}>
-        {/* Top Row: Title and Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.5rem 2rem' }}>
-          {/* Left: Title */}
-          <div>
-            <div style={{ color: 'var(--accent-cyan)', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '0.3rem', letterSpacing: '1px' }}>SMART FACTORY</div>
-            <h1 style={{ fontSize: '1.6rem', fontWeight: 'bold', color: 'var(--text-primary)', letterSpacing: '0.5px' }}>
-              반도체 식각 공정 지능형 관제 에이전트
-            </h1>
+      <header
+        style={{
+          background: 'var(--bg-card)',
+          borderBottom: '1px solid var(--border-color)',
+          zIndex: 10,
+        }}
+      >
+        <div className="dashboard-header-top">
+          <div className="dashboard-title-block">
+            <h1>SMART FACTORY</h1>
+            <p>식각 공정 이상 탐지 및 AI 원인 분석 대시보드</p>
           </div>
 
-          {/* Right: Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-            {/* Connection Status */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-              {wsConnected ? (
+          <div className="dashboard-controls">
+            <button className={`start-btn ${isRunning ? 'running' : ''}`} onClick={() => setIsRunning(!isRunning)}>
+              {isRunning ? (
                 <>
-                  <Wifi size={16} color="var(--accent-green)" />
-                  <span style={{ color: 'var(--accent-green)' }}>연결됨</span>
+                  <Square size={18} /> 시스템 중지
                 </>
               ) : (
                 <>
-                  <WifiOff size={16} color="var(--text-secondary)" />
-                  <span style={{ color: 'var(--text-secondary)' }}>대기</span>
+                  <Play size={18} fill="currentColor" /> 시스템 시작
                 </>
               )}
-            </div>
-
-            {/* Data Source Select */}
-            <select
-              value={dataSource}
-              onChange={(e) => setDataSource(e.target.value)}
-              className="select-input"
-              style={{ width: '140px', padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
-              disabled={isRunning}
-            >
-              <option value="local">📁 Local CSV</option>
-              <option value="kafka">📡 Kafka Stream</option>
-            </select>
-
-            {/* Slack Toggle */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              <input 
-                type="checkbox" 
-                checked={slackEnabled} 
-                onChange={(e) => setSlackEnabled(e.target.checked)} 
-                style={{ accentColor: 'var(--accent-cyan)' }}
-                disabled={isRunning}
-              />
-              Slack
-            </label>
-
-            {/* Model Info */}
-            <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ color: 'var(--accent-green)' }}>●</span> {selectedModel}
-            </div>
-            
-            <button 
-              className="start-btn"
-              style={{ background: 'rgba(0, 169, 224, 0.1)', border: '1px solid var(--accent-cyan)', color: 'var(--accent-cyan)', padding: '0.8rem 1.2rem' }}
-              onClick={() => setShowAccomplishments(true)}
-            >
-              <BarChart3 size={18} /> Analyze
-            </button>
-
-            <button 
-              className={`start-btn ${isRunning ? 'running' : ''}`}
-              style={{ padding: '0.8rem 1.5rem', fontSize: '1rem' }}
-              onClick={() => setIsRunning(!isRunning)}
-            >
-              {isRunning ? <><Square size={18} /> Stop System</> : <><Play size={18} fill="currentColor" /> Start System</>}
             </button>
           </div>
         </div>
 
-        {/* Bottom Row: Tabs */}
         <div style={{ display: 'flex', gap: '1rem', padding: '0 2rem' }}>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
-              <div 
+              <div
                 key={tab.id}
-                style={{ 
-                  display: 'flex', alignItems: 'center', gap: '0.5rem', 
-                  padding: '0.8rem 1.5rem', cursor: 'pointer', 
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: '0.8rem 1.5rem',
+                  cursor: 'pointer',
                   color: activeTab === tab.id ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                   borderBottom: activeTab === tab.id ? '3px solid var(--accent-cyan)' : '3px solid transparent',
                   fontWeight: activeTab === tab.id ? 'bold' : 'normal',
                   transition: 'all 0.2s',
-                  fontSize: '1.05rem'
+                  fontSize: '1.05rem',
                 }}
                 onClick={() => setActiveTab(tab.id)}
               >
@@ -339,59 +300,49 @@ function App() {
               </div>
             );
           })}
-          
+
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '1rem', paddingRight: '1rem' }}>
-             <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>현재 선택된 장비: <strong style={{ color: 'var(--accent-cyan)', fontSize: '1.1rem' }}>{selectedEquipment}</strong></span>
-             {systemStatus && (
-               <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                 | 서버: <span style={{ color: 'var(--accent-green)' }}>{systemStatus.status}</span>
-                 | 연결: {systemStatus.active_connections}
-               </span>
-             )}
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              선택 설비:{' '}
+              <strong style={{ color: 'var(--accent-cyan)', fontSize: '1.1rem' }}>{selectedEquipment}</strong>
+            </span>
+            {systemStatus && (
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                | 서버: <span style={{ color: 'var(--accent-green)' }}>{systemStatus.status === 'online' ? '온라인' : systemStatus.status}</span>
+                {' | '}
+                연결: {systemStatus.active_connections}
+              </span>
+            )}
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
       <main className="main-content" style={{ flex: 1, overflowY: 'auto', padding: '0' }}>
-        {activeTab === 0 && (
-          <FleetOverview fleetStatus={fleetStatus} onSelectEquipment={handleSelectEquipment} />
-        )}
+        {activeTab === 0 && <FleetOverview fleetStatus={fleetStatus} onSelectEquipment={handleSelectEquipment} />}
 
         {activeTab === 1 && (
-          <LiveDashboard 
-            latestMetrics={fleetStatus[selectedEquipment] || { mse: 0, status: '대기 중', confidence: 0, is_anomaly: false }} 
-            metricsHistory={metricsHistory[selectedEquipment] || []} 
-            isRunning={isRunning} 
-            selectedModel={selectedModel} 
-            onAnomalyClick={handleAnomalyClick} 
+          <LiveDashboard
+            latestMetrics={fleetStatus[selectedEquipment] || { mse: 0, status: 'Waiting', confidence: 0, is_anomaly: false }}
+            metricsHistory={metricsHistory[selectedEquipment] || []}
+            isRunning={isRunning}
+            selectedModel={selectedModel}
+            onAnomalyClick={handleAnomalyClick}
             equipmentId={selectedEquipment}
             topCandidates={fleetStatus[selectedEquipment]?.top_candidates || []}
+            rootCauseSensor={fleetStatus[selectedEquipment]?.root_cause_sensor}
           />
         )}
-        
-        {activeTab === 2 && (() => {
-          const eqShapHistory = shapHistory[selectedEquipment] || {};
-          const currentShap = eqShapHistory[selectedShapTime] || { data: [], explanation: "", top_candidates: [] };
-          return (
-            <ShapExplainer 
-              shapHistory={eqShapHistory} 
-              shapData={currentShap.data} 
-              explanation={currentShap.explanation} 
-              topCandidates={currentShap.top_candidates}
-              isRunning={isRunning} 
-              onSelectAnomaly={setSelectedShapTime} 
-              selectedEquipment={selectedEquipment}
-            />
-          );
-        })()}
 
-        {activeTab === 3 && <RagGuide />}
+        {activeTab === 2 && (
+          <RootCauseActionGuide
+            shapData={currentShap.data}
+            topCandidates={currentShap.top_candidates}
+            rootCauseSensor={currentShap.root_cause_sensor}
+            isRunning={isRunning}
+            selectedEquipment={selectedEquipment}
+          />
+        )}
       </main>
-
-      {showAccomplishments && (
-        <AccomplishmentsDashboard onClose={() => setShowAccomplishments(false)} />
-      )}
     </div>
   );
 }

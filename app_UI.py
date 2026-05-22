@@ -11,7 +11,7 @@ from confluent_kafka import Consumer
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from modeling_f2 import InferenceEngine
+from modeling_3 import InferenceEngine
 from shap_analysis import SHAPExplainer
 from agents.shap_agent import SHAPAgent
 from agents.rag_agent import GraphRAGAgent
@@ -83,7 +83,8 @@ with st.sidebar:
             st.success("🔔 Slack Alerts: Active")
             if st.button("Send Test Alert"):
                 notifier = SlackNotifier()
-                notifier.send_alert("MANUAL TEST", "TEST_RUN_001", 0.0, 1.0, "Test message from Dashboard.")
+                override = os.getenv("SLACK_WEBHOOK_OVERRIDE")
+                notifier.send_alert("MANUAL TEST", "TEST_RUN_001", 0.0, 1.0, "Test message from Dashboard.", webhook_url=override)
                 st.toast("Test alert sent!")
     
     st.markdown("---")
@@ -144,7 +145,8 @@ def perform_ai_analysis(fault_status, predicted_label, metrics_dict, run_name, a
         print(f"📨 Attempting to send Slack alert for {fault_status}...")
         try:
             notifier = SlackNotifier()
-            notifier.send_alert(fault_status, run_name, 0.0, 1.0, explanation) # MSE/Conf simplified here
+            override = os.getenv("SLACK_WEBHOOK_OVERRIDE")
+            notifier.send_alert(fault_status, run_name, 0.0, 1.0, explanation, webhook_url=override)
         except Exception as e:
             print(f"❌ Slack Alert Failed: {e}")
             
@@ -333,3 +335,26 @@ else:
         <p>Please toggle 'Start Monitoring' in the sidebar to begin real-time analysis.</p>
     </div>
     """, unsafe_allow_html=True)
+
+# ------------------------------------------------------------------
+# Code Viewer Tab (shows modified files for review)
+# ------------------------------------------------------------------
+with st.expander("🧾 View Modified Code (Click to expand)"):
+    st.markdown("### Modified files included in this session")
+    files_to_show = [
+        'notifications/slack.py',
+        'agents/rag_agent.py',
+        'server_backend.py',
+        'app_UI.py'
+    ]
+    for fp in files_to_show:
+        if os.path.exists(fp):
+            try:
+                with open(fp, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                st.markdown(f"**{fp}**")
+                st.code(content, language='python')
+            except Exception as e:
+                st.error(f"Failed to read {fp}: {e}")
+        else:
+            st.warning(f"File not found: {fp}")

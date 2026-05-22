@@ -1,13 +1,13 @@
 :root {
-  --bg-dark: #121418;
-  --bg-card: #1E2128;
-  --border-color: #2D313A;
-  --text-primary: #F0F2F5;
-  --text-secondary: #9AA0A6;
-  --accent-cyan: #00A9E0;
-  --accent-blue: #1428A0;
-  --accent-red: #FA4646;
-  --accent-green: #00C752;
+  --bg-dark: #0E1117;
+  --bg-card: #262730;
+  --border-color: #333333;
+  --text-primary: #FFFFFF;
+  --text-secondary: #A0AEC0;
+  --accent-cyan: #5A9CFF;
+  --accent-blue: #5A9CFF;
+  --accent-red: #F87171;
+  --accent-green: #4ADE80;
 }
 
 * {
@@ -26,14 +26,14 @@ body {
 
 .glass-panel {
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 1.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
 .equipment-card {
-  border-radius: 22px;
+  border-radius: 12px;
 }
 
 .text-gradient {

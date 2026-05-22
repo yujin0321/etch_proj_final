@@ -9,7 +9,7 @@ import lightgbm as lgb
 import joblib
 import json
 import os
-from modeling_f2 import train_improved_autoencoder
+from modeling_3 import train_improved_autoencoder
 
 
 def build_sensor_stats(df, features):

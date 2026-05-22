@@ -152,7 +152,7 @@ const RagGuide = () => {
 
       {/* Results */}
       {ragResult && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '1.5rem', minHeight: '350px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.5fr)', gap: '1.5rem', minHeight: '350px' }}>
           {/* 왼쪽: 검색 메타 정보 + 지식 그래프 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {/* Query Info */}

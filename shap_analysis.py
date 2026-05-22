@@ -72,7 +72,7 @@ class SHAPExplainer:
         return analysis_results
 
 if __name__ == "__main__":
-    from modeling_f2 import InferenceEngine
+    from modeling_3 import InferenceEngine
     engine = InferenceEngine()
     explainer = SHAPExplainer(engine.lgb_model, engine.features)
     

@@ -7,13 +7,13 @@ const ShapExplainer = ({ shapHistory, shapData, explanation, topCandidates, isRu
   const anomalyTimes = Object.keys(shapHistory || {}).sort((a, b) => b.localeCompare(a)); // 최신순 정렬
 
   return (
-    <div className="tab-content" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="tab-content" style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
         <BrainCircuit size={24} color="var(--accent-cyan)" />
         <h2>Root Cause Analysis (SHAP + LLM)</h2>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '250px 350px 1fr', gap: '1.5rem', height: '500px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '250px 350px minmax(0, 1fr)', gap: '1.5rem', minHeight: '500px' }}>
         {/* 왼쪽: 이상치 목록 사이드바 */}
         <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', padding: '1rem' }}>
           <h3 style={{ marginBottom: '1rem', fontSize: '1rem', color: 'var(--text-secondary)' }}>
@@ -33,9 +33,9 @@ const ShapExplainer = ({ shapHistory, shapData, explanation, topCandidates, isRu
                     onClick={() => onSelectAnomaly(time)}
                     style={{
                       padding: '0.8rem',
-                      background: isActive ? 'rgba(0, 169, 224, 0.15)' : 'rgba(0,0,0,0.2)',
-                      border: isActive ? '1px solid var(--accent-cyan)' : '1px solid transparent',
-                      borderRadius: '6px',
+                      background: isActive ? 'rgba(90, 156, 255, 0.14)' : 'rgba(160, 174, 192, 0.06)',
+                      border: '0',
+                      borderRadius: '12px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -69,14 +69,14 @@ const ShapExplainer = ({ shapHistory, shapData, explanation, topCandidates, isRu
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={shapData} layout="vertical" margin={{ top: 0, right: 30, left: 40, bottom: 0 }}>
                   <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" stroke="rgba(255,255,255,0.5)" tick={{fill: 'var(--text-secondary)', fontSize: 12}} />
+                  <YAxis dataKey="name" type="category" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontSize: 12}} />
                   <Tooltip 
-                    cursor={{fill: 'rgba(255,255,255,0.05)'}}
-                    contentStyle={{ backgroundColor: 'rgba(10,10,15,0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                    cursor={{fill: 'rgba(160,174,192,0.08)'}}
+                    contentStyle={{ backgroundColor: '#262730', border: '0', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}
                   />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                     {shapData && shapData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={index === 0 ? 'var(--accent-red)' : index === 1 ? 'var(--accent-cyan)' : 'rgba(0, 198, 255, 0.3)'} />
+                      <Cell key={`cell-${index}`} fill={index === 0 ? 'var(--accent-red)' : index === 1 ? 'var(--accent-cyan)' : 'rgba(90, 156, 255, 0.35)'} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -92,10 +92,10 @@ const ShapExplainer = ({ shapHistory, shapData, explanation, topCandidates, isRu
           </h3>
           <div style={{ 
             flex: 1, 
-            background: 'rgba(0,0,0,0.3)', 
-            borderRadius: '8px', 
+            background: '#1E1E1E', 
+            borderRadius: '12px', 
             padding: '1.5rem',
-            border: '1px solid var(--border-color)',
+            border: '0',
             overflowY: 'auto',
             fontFamily: 'inherit',
             fontSize: '1rem',
@@ -108,7 +108,7 @@ const ShapExplainer = ({ shapHistory, shapData, explanation, topCandidates, isRu
             
             {/* AI 판정 후보군 TOP 3 */}
             {explanation && topCandidates && topCandidates.length > 0 && (
-              <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', borderLeft: '4px solid var(--accent-cyan)' }}>
+              <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(90, 156, 255, 0.1)', borderRadius: '12px' }}>
                 <p style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', fontWeight: 'bold', marginBottom: '0.6rem', letterSpacing: '0.5px' }}>🎯 AI 판정 후보군 (TOP 3)</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                   {topCandidates.map((c, i) => (

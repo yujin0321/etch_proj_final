@@ -7,7 +7,7 @@ warnings.filterwarnings('ignore')
 import json
 
 # 앞서 작성한 추론 엔진 모듈 임포트 (파일명에 맞게 수정 필요 시 수정)
-from modeling_f2 import InferenceEngine
+from modeling_3 import InferenceEngine
 
 print("🚀 모델 평가를 위한 시뮬레이션을 시작합니다...")
 

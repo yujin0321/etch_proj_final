@@ -888,7 +888,7 @@ def _format_response_list(items: list[str], indent: str = "    ") -> str:
     return "\n".join(f"{indent}{i+1}. {item}" for i, item in enumerate(items))
 
 
-def build_prompt(fault_label: str, stats: dict | None = None) -> tuple[str, str]:
+def build_prompt(fault_label: str, stats: dict | None = None, fallback: bool = False) -> tuple[str, str]:
     """
     Returns (system_prompt, user_prompt).
     """
@@ -917,6 +917,13 @@ def build_prompt(fault_label: str, stats: dict | None = None) -> tuple[str, str]
         resp_verify=_format_response_list(resp["verify"]),
         resp_prevent=_format_response_list(resp["prevent"]),
     )
+    if fallback:
+        user += (
+            "\n\n[Fallback Guidance]\n"
+            "Knowledge Graph 설명이 부족하거나 해당 결함의 세부 SOP가 누락된 경우, "
+            "프롬프트에 제공된 일반 공정 원칙과 센서 이상 신호를 우선 사용하여 안전한 1차 대응과 점검 항목을 제시하시오. "
+            "가능하면 '지식 공백' 상태를 명시하고, 실제 적용 전 자사 SOP를 먼저 확인해야 함을 강조하시오."
+        )
     return SYSTEM_PROMPT, user
 
 
