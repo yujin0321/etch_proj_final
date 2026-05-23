@@ -616,6 +616,27 @@ def _segment_top_sensor_to_analysis_item(top_sensor: Optional[Dict[str, Any]]) -
     }
 
 
+def _prioritize_representative_root_cause(
+    analysis_data: list[Dict[str, Any]],
+    segment_item: Optional[Dict[str, Any]],
+    limit: int = 8,
+) -> list[Dict[str, Any]]:
+    """Put the anomaly-segment root cause first so UI, SHAP report, and RAG guide align."""
+    if not segment_item:
+        return analysis_data
+
+    segment_sensor = _base_sensor_name(segment_item.get("sensor", ""))
+    merged = [segment_item]
+
+    for item in analysis_data:
+        item_sensor = _base_sensor_name(item.get("sensor") or item.get("base_sensor") or "")
+        if item_sensor == segment_sensor:
+            continue
+        merged.append(item)
+
+    return merged[:limit]
+
+
 def _average_metrics_rows(metrics_rows: list[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not metrics_rows:
         return None
@@ -887,8 +908,7 @@ async def _run_anomaly_pipeline(
         # Send SHAP data
         segment_info = segment_summary or _run_buffer.get(eq_id, {}).get('segment_summary', {})
         segment_item = _segment_top_sensor_to_analysis_item(segment_info.get('top_sensor'))
-        if segment_item and not analysis_data:
-            analysis_data.append(segment_item)
+        analysis_data = _prioritize_representative_root_cause(analysis_data, segment_item)
 
         if analysis_data:
             shap_payload = {

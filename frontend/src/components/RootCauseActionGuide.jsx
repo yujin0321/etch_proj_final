@@ -129,6 +129,7 @@ const getSensorInfo = (name) => {
 const RootCauseActionGuide = ({ shapData, topCandidates, rootCauseSensor, selectedEquipment, isRunning }) => {
   const rawPrimaryRootCause = cleanSensorName(rootCauseSensor?.sensor || rootCauseSensor || '');
   const primaryRootCause = isSensorName(rawPrimaryRootCause) ? rawPrimaryRootCause : '';
+  const primaryRootCauseName = primaryRootCause ? normalizeSensorName(primaryRootCause) : '';
   const sensorList = ((shapData && shapData.length > 0 ? shapData : FALLBACK_SENSORS)
     .filter((sensor) => isSensorName(sensor.name))
     .slice(0, 6)
@@ -137,14 +138,25 @@ const RootCauseActionGuide = ({ shapData, topCandidates, rootCauseSensor, select
       name: normalizeSensorName(sensor.name),
       value: Number(sensor.value || 0),
     })));
-  const displaySensors = sensorList.length ? sensorList : FALLBACK_SENSORS;
-  const sourceSensors = primaryRootCause
-    ? displaySensors.sort((a, b) => {
-        if (a.name === normalizeSensorName(primaryRootCause)) return -1;
-        if (b.name === normalizeSensorName(primaryRootCause)) return 1;
-        return b.value - a.value;
-      })
-    : displaySensors;
+  const contributionSensors = sensorList.length ? sensorList : FALLBACK_SENSORS;
+  const topContributionSensor = sensorList[0] || null;
+  const showModelContributionSensor = Boolean(
+    primaryRootCauseName &&
+    topContributionSensor &&
+    topContributionSensor.name !== primaryRootCauseName
+  );
+  const sourceSensors = primaryRootCauseName
+    ? [
+        {
+          name: primaryRootCauseName,
+          value: Number(rootCauseSensor?.score || topContributionSensor?.value || 0),
+          isRepresentativeRootCause: true,
+        },
+        ...contributionSensors
+          .filter((sensor) => sensor.name !== primaryRootCauseName)
+          .sort((a, b) => b.value - a.value),
+      ].slice(0, 6)
+    : contributionSensors;
 
   const primarySensor = sourceSensors[0];
   const primaryInfo = getSensorInfo(primarySensor?.name);
@@ -189,6 +201,11 @@ const RootCauseActionGuide = ({ shapData, topCandidates, rootCauseSensor, select
               <div className="root-cause-callout" style={{ marginTop: '1rem', padding: '1rem', borderRadius: '16px', background: 'rgba(255, 239, 213, 0.16)', border: '1px solid rgba(255, 193, 7, 0.14)' }}>
                 <strong style={{ display: 'block', marginBottom: '0.5rem' }}>이상 구간 주요 센서</strong>
                 <p style={{ margin: 0, color: 'var(--text-primary)' }}>{primaryRootCause}</p>
+                {showModelContributionSensor && (
+                  <p style={{ margin: '0.65rem 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    모델 판단 기여 센서: {topContributionSensor.name}
+                  </p>
+                )}
               </div>
             )}
             <div className="sensor-orbit" aria-label="이상 원인 센서 원형 그래프">
