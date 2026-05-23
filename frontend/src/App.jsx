@@ -129,6 +129,8 @@ function App() {
                 explanation: 'Analyzing...',
                 recommendation: '',
                 fault_status: payload.fault_status,
+                root_cause_sensor: payload.root_cause_sensor || null,
+                observed_deviation_sensor: payload.observed_deviation_sensor || null,
               },
             };
 
@@ -159,6 +161,7 @@ function App() {
                   recommendation: payload.recommendation,
                   top_candidates: payload.top_candidates || [],
                   root_cause_sensor: payload.root_cause_sensor || null,
+                  observed_deviation_sensor: payload.observed_deviation_sensor || null,
                 },
               },
             };
@@ -169,6 +172,7 @@ function App() {
             [eqId]: {
               ...(prev[eqId] || {}),
               root_cause_sensor: payload.root_cause_sensor || null,
+              observed_deviation_sensor: payload.observed_deviation_sensor || null,
             },
           }));
         } else if (payload.type === 'equipment_stop') {
@@ -241,8 +245,10 @@ function App() {
     (latestShapTime && eqShapHistory[latestShapTime]) || {
       data: [],
       explanation: '',
+      fault_status: '',
       top_candidates: [],
       root_cause_sensor: null,
+      observed_deviation_sensor: null,
     };
 
   return (
@@ -338,6 +344,8 @@ function App() {
             shapData={currentShap.data}
             topCandidates={currentShap.top_candidates}
             rootCauseSensor={currentShap.root_cause_sensor}
+            observedDeviationSensor={currentShap.observed_deviation_sensor}
+            faultStatus={currentShap.fault_status}
             isRunning={isRunning}
             selectedEquipment={selectedEquipment}
           />

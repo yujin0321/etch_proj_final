@@ -2,6 +2,36 @@ import React from 'react';
 import { AlertTriangle, Gauge, ShieldCheck, Wrench, Zap } from 'lucide-react';
 
 const SENSOR_LIBRARY = {
+  'BCl3 Flow': {
+    label: 'BCl3 Flow',
+    area: 'Gas Box / BCl3 MFC 라인',
+    role: 'BCl3 공급 유량과 MFC 제어 상태를 감시합니다.',
+    action: [
+      'BCl3 MFC setpoint와 actual flow 로그가 같은 방향으로 벗어났는지 확인합니다.',
+      'Zero/span calibration, valve stuck-open, upstream pressure regulator 상태를 점검합니다.',
+      '보정 후 dry-run과 monitor wafer로 etch rate, CD/profile이 SPC 범위로 복귀했는지 확인합니다.',
+    ],
+  },
+  'Cl2 Flow': {
+    label: 'Cl2 Flow',
+    area: 'Gas Box / Cl2 MFC 라인',
+    role: 'Cl2 공급 유량과 Cl2/BCl3 chemistry balance를 감시합니다.',
+    action: [
+      'Cl2 MFC reading, setpoint 추종성, gas line pressure를 확인합니다.',
+      'Cl2 line valve, MFC zero offset, controller communication 상태를 점검합니다.',
+      'Cl2/BCl3 ratio와 OES chlorine-related band가 정상 envelope로 돌아왔는지 확인합니다.',
+    ],
+  },
+  'RF Bottom Power': {
+    label: 'RF Bottom Power',
+    area: 'Bottom RF Generator / Matcher',
+    role: '하부 RF bias power와 ion energy를 좌우하는 전력 공급 상태를 감시합니다.',
+    action: [
+      'RF generator forward/reflected power와 commanded power의 차이를 확인합니다.',
+      'Bottom matcher tuning, cable/connector torque, reflected power 상승 여부를 점검합니다.',
+      'Matcher recalibration 후 RF reflected power와 wafer profile이 정상 범위로 복귀했는지 확인합니다.',
+    ],
+  },
   'TCP Top Power': {
     label: 'TCP Top Power',
     area: '상부 RF 전극 / 플라즈마 소스',
@@ -104,6 +134,9 @@ const normalizeSensorName = (name = '') => {
   const cleaned = cleanSensorName(name);
   const lower = cleaned.toLowerCase();
   if (lower.includes('tcp')) return 'TCP Top Power';
+  if (lower.includes('rf btm') || lower.includes('rf bottom')) return 'RF Bottom Power';
+  if (lower.includes('bcl3')) return 'BCl3 Flow';
+  if (lower.includes('cl2')) return 'Cl2 Flow';
   if (lower.includes('bias')) return 'Bias Power';
   if (lower.includes('pressure') || lower.includes('chamber')) return 'Chamber Pressure';
   if (lower.includes('he') || lower.includes('chuck')) return 'He Chuck';
@@ -112,8 +145,94 @@ const normalizeSensorName = (name = '') => {
   return cleaned || 'Unknown Sensor';
 };
 
+const isOesSensor = (name = '') => /^\d+(\.\d+){0,2}$/.test(cleanSensorName(name));
+const isRfmSensor = (name = '') => /^S\d+(?:(?:P[VI])|[PVI])\d+$/i.test(cleanSensorName(name));
+
+const genericSensorInfo = (name) => {
+  const normalized = normalizeSensorName(name);
+  const raw = cleanSensorName(name);
+  const lower = raw.toLowerCase();
+
+  if (isOesSensor(raw)) {
+    return {
+      label: raw,
+      area: 'OES 광학 센서 / 플라즈마 방출 스펙트럼',
+      role: `${raw} nm 파장대의 emission intensity 변화를 통해 plasma chemistry와 by-product 변화를 감시합니다.`,
+      action: [
+        '해당 파장 intensity가 기준 envelope 대비 상승/하락했는지 OES trend로 확인합니다.',
+        '동시에 BCl3/Cl2 flow, pressure, RF/TCP power 변화가 있었는지 같은 run 시점으로 대조합니다.',
+        '광학 window 오염, endpoint drift, chamber seasoning 이력 확인 후 monitor wafer로 etch 결과를 검증합니다.',
+      ],
+    };
+  }
+
+  if (isRfmSensor(raw)) {
+    return {
+      label: raw,
+      area: 'RFM / RF harmonic metrology',
+      role: 'RF voltage, current, phase, power harmonic 응답으로 plasma impedance와 matcher 상태 변화를 감시합니다.',
+      action: [
+        '동일 시점의 RF forward/reflected power, matcher tune/load, impedance 변화를 함께 확인합니다.',
+        'RF cable, matcher, generator 상태를 점검하고 harmonic 변화가 특정 source 전력 변화와 동반되는지 분리합니다.',
+        'Matcher recalibration 또는 RF source 점검 후 RFM harmonic signature가 baseline으로 복귀했는지 확인합니다.',
+      ],
+    };
+  }
+
+  if (lower.includes('rf') || lower.includes('tcp') || lower.includes('tuner') || lower.includes('load') || lower.includes('impedance') || lower.includes('phase')) {
+    return {
+      label: normalized,
+      area: 'RF Power / Matching Network',
+      role: 'RF source, matcher, impedance matching 상태를 감시합니다.',
+      action: [
+        'Commanded power와 actual power, reflected power, tuner/load 위치를 같은 시점에서 비교합니다.',
+        'RF generator, matcher, cable/connector 체결 상태와 arcing 또는 reflected power spike를 확인합니다.',
+        '재보정 후 dry-run에서 power stability와 impedance envelope가 정상 범위인지 검증합니다.',
+      ],
+    };
+  }
+
+  if (lower.includes('flow') || lower.includes('bcl3') || lower.includes('cl2')) {
+    return {
+      label: normalized,
+      area: 'Gas Box / MFC 라인',
+      role: '공정 gas 공급량과 chemistry balance를 감시합니다.',
+      action: [
+        'MFC setpoint, actual flow, valve command, upstream pressure를 같은 timestamp 기준으로 비교합니다.',
+        'Zero/span calibration, valve sticking, regulator drift, controller communication 이상 여부를 점검합니다.',
+        '조치 후 gas ratio와 OES chemistry signature, monitor wafer 결과가 정상으로 복귀했는지 확인합니다.',
+      ],
+    };
+  }
+
+  if (lower.includes('press') || lower.includes('vat') || lower.includes('valve')) {
+    return {
+      label: normalized,
+      area: 'Chamber Pressure / Exhaust Control',
+      role: '챔버 압력, He cooling pressure, throttle/vat valve 응답을 감시합니다.',
+      action: [
+        'Pressure trace와 Vat Valve opening, pump/exhaust 상태, gas flow 변화를 함께 확인합니다.',
+        'Leak, valve sticking, pressure controller offset, backside He 이상 여부를 분리 점검합니다.',
+        'Base pressure와 step pressure settling time이 기준 범위로 복귀했는지 검증합니다.',
+      ],
+    };
+  }
+
+  return {
+    label: normalized,
+    area: '공정 센서 / 설비 상태 계측부',
+    role: '공정 이상 판단에 기여한 센서입니다.',
+    action: [
+      '해당 센서의 현재값, 정상 범위, 최근 trend를 같은 recipe step 기준으로 비교합니다.',
+      '동시에 변한 gas, pressure, RF/TCP, OES, RFM 센서를 확인해 단일 센서 이상인지 공정 조건 변화인지 분리합니다.',
+      '반복 발생 시 센서 calibration, 통신 상태, 계측 하드웨어와 PM 이력을 점검합니다.',
+    ],
+  };
+};
+
 const getSensorInfo = (name) => {
   const normalized = normalizeSensorName(name);
+  if (!SENSOR_LIBRARY[normalized]) return genericSensorInfo(name);
   return SENSOR_LIBRARY[normalized] || {
     label: normalized,
     area: '공정 센서 / 장비 상태 계측부',
@@ -126,10 +245,19 @@ const getSensorInfo = (name) => {
   };
 };
 
-const RootCauseActionGuide = ({ shapData, topCandidates, rootCauseSensor, selectedEquipment, isRunning }) => {
+const RootCauseActionGuide = ({
+  shapData,
+  topCandidates,
+  rootCauseSensor,
+  observedDeviationSensor,
+  faultStatus,
+  selectedEquipment,
+  isRunning,
+}) => {
   const rawPrimaryRootCause = cleanSensorName(rootCauseSensor?.sensor || rootCauseSensor || '');
   const primaryRootCause = isSensorName(rawPrimaryRootCause) ? rawPrimaryRootCause : '';
   const primaryRootCauseName = primaryRootCause ? normalizeSensorName(primaryRootCause) : '';
+  const observedDeviationName = normalizeSensorName(observedDeviationSensor?.sensor || observedDeviationSensor || '');
   const sensorList = ((shapData && shapData.length > 0 ? shapData : FALLBACK_SENSORS)
     .filter((sensor) => isSensorName(sensor.name))
     .slice(0, 6)
@@ -144,6 +272,11 @@ const RootCauseActionGuide = ({ shapData, topCandidates, rootCauseSensor, select
     primaryRootCauseName &&
     topContributionSensor &&
     topContributionSensor.name !== primaryRootCauseName
+  );
+  const showObservedDeviationSensor = Boolean(
+    observedDeviationName &&
+    primaryRootCauseName &&
+    observedDeviationName !== primaryRootCauseName
   );
   const sourceSensors = primaryRootCauseName
     ? [
@@ -199,8 +332,18 @@ const RootCauseActionGuide = ({ shapData, topCandidates, rootCauseSensor, select
             </div>
             {primaryRootCause && (
               <div className="root-cause-callout" style={{ marginTop: '1rem', padding: '1rem', borderRadius: '16px', background: 'rgba(255, 239, 213, 0.16)', border: '1px solid rgba(255, 193, 7, 0.14)' }}>
-                <strong style={{ display: 'block', marginBottom: '0.5rem' }}>이상 구간 주요 센서</strong>
+                <strong style={{ display: 'block', marginBottom: '0.5rem' }}>대표 원인 센서</strong>
                 <p style={{ margin: 0, color: 'var(--text-primary)' }}>{primaryRootCause}</p>
+                {faultStatus && (
+                  <p style={{ margin: '0.4rem 0 0', color: 'var(--accent-cyan)', fontSize: '0.9rem' }}>
+                    결함 유형: {faultStatus}
+                  </p>
+                )}
+                {showObservedDeviationSensor && (
+                  <p style={{ margin: '0.65rem 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    관측 최대 이탈 센서: {observedDeviationName}
+                  </p>
+                )}
                 {showModelContributionSensor && (
                   <p style={{ margin: '0.65rem 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
                     모델 판단 기여 센서: {topContributionSensor.name}

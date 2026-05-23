@@ -507,6 +507,50 @@ NON_SENSOR_FIELDS = {
     "predicted_label",
 }
 
+FAULT_ROOT_CAUSE_SENSOR_MAP = {
+    "TCP+50": "TCP Top Pwr",
+    "TCP +50": "TCP Top Pwr",
+    "RF-12": "RF Btm Pwr",
+    "BCl3 +5": "BCl3 Flow",
+    "BCl3+5": "BCl3 Flow",
+    "BCl3 +10": "BCl3 Flow",
+    "BCl3+10": "BCl3 Flow",
+    "BCl3 -5": "BCl3 Flow",
+    "BCl3-5": "BCl3 Flow",
+    "Cl2 +5": "Cl2 Flow",
+    "Cl2+5": "Cl2 Flow",
+    "Cl2 -5": "Cl2 Flow",
+    "Cl2-5": "Cl2 Flow",
+    "Cl2 -10": "Cl2 Flow",
+    "Cl2-10": "Cl2 Flow",
+    "RF +8": "RF Btm Pwr",
+    "RF+8": "RF Btm Pwr",
+    "RF +10": "RF Btm Pwr",
+    "RF+10": "RF Btm Pwr",
+    "RF -12": "RF Btm Pwr",
+    "RF -12 (v2)": "RF Btm Pwr",
+    "RF-12 (v2)": "RF Btm Pwr",
+    "TCP +10": "TCP Top Pwr",
+    "TCP+10": "TCP Top Pwr",
+    "TCP +20": "TCP Top Pwr",
+    "TCP+20": "TCP Top Pwr",
+    "TCP +30": "TCP Top Pwr",
+    "TCP+30": "TCP Top Pwr",
+    "TCP -15": "TCP Top Pwr",
+    "TCP-15": "TCP Top Pwr",
+    "TCP -20": "TCP Top Pwr",
+    "TCP-20": "TCP Top Pwr",
+    "Pr +1": "Pressure",
+    "Pr+1": "Pressure",
+    "Pr +2": "Pressure",
+    "Pr+2": "Pressure",
+    "Pr +3": "Pressure",
+    "Pr+3": "Pressure",
+    "Pr -2": "Pressure",
+    "Pr-2": "Pressure",
+    "He Chuck": "He Press",
+}
+
 
 def _base_sensor_name(sensor_name: str) -> str:
     return sensor_name.split("__", 1)[0].strip()
@@ -614,6 +658,75 @@ def _segment_top_sensor_to_analysis_item(top_sensor: Optional[Dict[str, Any]]) -
         "rank": 0,
         "source": "anomaly_segment",
     }
+
+
+def _fault_root_cause_sensor_name(fault_label: str) -> Optional[str]:
+    label = (fault_label or "").strip()
+    if not label or label == "Normal":
+        return None
+    if label in FAULT_ROOT_CAUSE_SENSOR_MAP:
+        return FAULT_ROOT_CAUSE_SENSOR_MAP[label]
+    compact = label.replace(" ", "")
+    if compact in FAULT_ROOT_CAUSE_SENSOR_MAP:
+        return FAULT_ROOT_CAUSE_SENSOR_MAP[compact]
+    if compact.startswith("BCl3"):
+        return "BCl3 Flow"
+    if compact.startswith("Cl2"):
+        return "Cl2 Flow"
+    if compact.startswith("RF"):
+        return "RF Btm Pwr"
+    if compact.startswith("TCP"):
+        return "TCP Top Pwr"
+    if compact.startswith("Pr"):
+        return "Pressure"
+    if label.lower().startswith("he"):
+        return "He Press"
+    return None
+
+
+def _sensor_to_analysis_item(
+    sensor: str,
+    metrics: Dict[str, Any],
+    source: str,
+    rank: int = 0,
+) -> Optional[Dict[str, Any]]:
+    if not sensor:
+        return None
+
+    stat = (getattr(explainer, "stats", {}) or {}).get(sensor, {})
+    try:
+        value = float(metrics.get(sensor, 0.0))
+    except (TypeError, ValueError):
+        value = 0.0
+
+    mean = float(stat.get("mean", 0.0))
+    std = float(stat.get("std", stat.get("std_dev", 0.0) or 0.0))
+    score = abs((value - mean) / std) if std > 1e-6 else abs(value - mean)
+    status = "High" if value > mean else "Low" if value < mean else "Normal"
+
+    return {
+        "sensor": sensor,
+        "base_sensor": sensor,
+        "shap_value": float(score or 0.0),
+        "current_value": round(float(value or 0.0), 4),
+        "mean_value": round(float(mean or 0.0), 4),
+        "normal_range": [stat.get("lower_bound"), stat.get("upper_bound")],
+        "status": status,
+        "direction": "High" if status == "High" else "Low" if status == "Low" else "Fault prior",
+        "rank": rank,
+        "source": source,
+    }
+
+
+def _fault_root_cause_to_analysis_item(
+    fault_label: str,
+    metrics: Dict[str, Any],
+    observed_item: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    sensor = _fault_root_cause_sensor_name(fault_label)
+    if sensor:
+        return _sensor_to_analysis_item(sensor, metrics, "fault_label_root_cause", rank=0)
+    return observed_item
 
 
 def _prioritize_representative_root_cause(
@@ -907,8 +1020,13 @@ async def _run_anomaly_pipeline(
 
         # Send SHAP data
         segment_info = segment_summary or _run_buffer.get(eq_id, {}).get('segment_summary', {})
-        segment_item = _segment_top_sensor_to_analysis_item(segment_info.get('top_sensor'))
-        analysis_data = _prioritize_representative_root_cause(analysis_data, segment_item)
+        observed_deviation_item = _segment_top_sensor_to_analysis_item(segment_info.get('top_sensor'))
+        root_cause_item = _fault_root_cause_to_analysis_item(
+            fault_status,
+            metrics,
+            observed_deviation_item,
+        )
+        analysis_data = _prioritize_representative_root_cause(analysis_data, root_cause_item)
 
         if analysis_data:
             shap_payload = {
@@ -917,7 +1035,9 @@ async def _run_anomaly_pipeline(
                 "time": current_time,
                 "run_name": run_name,
                 "fault_status": fault_status,
-                "analysis_data": analysis_data
+                "analysis_data": analysis_data,
+                "root_cause_sensor": root_cause_item,
+                "observed_deviation_sensor": observed_deviation_item,
             }
             await manager.send_json(websocket, shap_payload)
 
@@ -940,7 +1060,8 @@ async def _run_anomaly_pipeline(
             "explanation": explanation,
             "recommendation": recommendation,
             "top_candidates": result.get('top_candidates', []),
-            "root_cause_sensor": segment_info.get('top_sensor')
+            "root_cause_sensor": root_cause_item,
+            "observed_deviation_sensor": observed_deviation_item,
         }
         await manager.send_json(websocket, report_payload)
 
